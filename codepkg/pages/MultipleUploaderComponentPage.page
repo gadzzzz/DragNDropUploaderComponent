@@ -1,0 +1,3 @@
+<apex:page standardController="Case" docType="html-5.0" >
+	<c:MultipleUploaderComponent parentCaseId="{!$CurrentPage.parameters.id}"/>  
+</apex:page>

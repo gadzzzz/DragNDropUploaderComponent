@@ -1,0 +1,246 @@
+<apex:component controller="MultipleUploaderComponentController">
+	<apex:attribute name="parentCaseId" type="String" description="Parent case ID" required="required"/>
+	<style>
+        #holder {
+            text-align: center;
+            margin: 0;
+            padding: 0;
+            height: 95%;
+        }
+        #topbuttons{
+       	    text-align: center;
+        }
+         #progressHolder {
+            margin: 0;
+            padding: 0;
+            height: 95%;
+            overflow-y: scroll;
+        }
+        #dndContainer{
+        	height:100%;
+        }
+        #holder span, #uploadCompleted span {
+            position: relative;
+            top: 30%;
+            font-size:3em;
+            color:#A3A3A3;
+        }
+        #holder.hover { 
+        	border: 2px dashed #636363; 
+        	background-color:#f8f8f8;
+       	}
+
+        .uploadStatus span{
+        	width:96%;
+            font-size:1em;
+            margin-left:2%;
+        }
+
+        #holder p { 
+        	margin: 10px; 
+        	font-size: 14px; 
+       	}
+        progress { 
+	        width: 96%; 
+	        margin-left:2%; 
+	        margin-right:2%; 
+	        margin-bottom:10px;  
+	        height:2em; 
+	        text-align:center;
+	        padding-top:4px; 
+        }
+        progress:after { 
+        	content: attr(value)'%'; 
+       	}
+        .hidden { 
+        	display: none;
+       	}
+        html,body {
+    		height:100%;
+		}
+    </style>
+
+<article id="dndContainer">
+	<div id="topbuttons" class="hidden"><button id="refreshbutton" class="hidden" onclick="refresh()">Refresh</button><button onclick="abortAll()">Cancel all</button></div>
+	<div id="holder" class="bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette">
+		<span id="holder_txt1"> Drag and Drop files here </span>
+        <span id="holder_txt2" class="hidden"> Upload </span>
+	</div>
+	<div id="progressHolder" class="bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette hidden">
+   	</div>
+</article>
+<script>
+	var progressSize = 0;
+	var completedSize = 0;
+	var successSize = 0;
+	var errorStack = [];
+	var insertedFiles = [];
+    var holder = document.getElementById('holder');
+    
+    var holder_txt1 = document.getElementById('holder_txt1');
+    var holder_txt2 = document.getElementById('holder_txt2');
+	var progressHolder = document.getElementById('progressHolder');
+	var topbuttons = document.getElementById('topbuttons');
+	var refreshbutton =  document.getElementById('refreshbutton');
+	
+	function refresh(){
+		progressSize = 0;
+		completedSize = 0;
+		successSize = 0;
+		errorStack = [];
+	 	insertedFiles = [];
+		textBeforeDrag(true);
+		refreshbutton.className = 'hidden';
+		topbuttons.className = 'hidden';
+		holder.className = 'bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette';
+		progressHolder.innerHTML = '';
+		progressHolder.className = 'bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette hidden';
+	}
+	
+	function abortAll(){
+		var buttons = document.getElementsByClassName("theClassName");
+		for(var i=0;i<buttons.length;i++){
+			buttons[i].click();
+		}
+		Visualforce.remoting.Manager.invokeAction(
+	        '{!$RemoteAction.MultipleUploaderComponentController.deleteCanceled}',insertedFiles,function(result, event){
+	        	refresh();
+	        }, 
+	        { buffer: false, escape: true, timeout: 30000 }
+	    );
+	}
+
+	function textBeforeDrag(flag){
+	    if(flag){
+	        holder_txt1.className = '';
+	        holder_txt2.className = 'hidden';
+	    }else{
+	        holder_txt1.className = 'hidden';
+	        holder_txt2.className = '';
+	    }
+	}
+	
+	function readfiles(files) { 
+		holder.className = 'hidden';
+	    for (var i = 0; i < files.length; i++) {
+	        attachFile(files[i],i);
+	    } 
+	}
+
+  holder.ondragover = function () {
+        this.className = 'hover';
+        textBeforeDrag(false);
+        return false;
+      };
+  holder.ondragend = function () {
+        this.className = 'bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette';
+        textBeforeDrag(true);
+        return false;
+      };
+  holder.ondragleave = function(){
+  		this.className = 'bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette';
+        textBeforeDrag(true);
+        return false;
+  };
+  holder.ondrop = function (e) {
+        textBeforeDrag(true);
+        topbuttons.className = '';
+        this.className = '';
+        e.preventDefault();
+        generateProgress(e.dataTransfer.files)
+        readfiles(e.dataTransfer.files);
+  }
+  
+  function generateProgress(files){
+  		progressHolder.className = 'bPageBlock brandSecondaryBrd apexDefaultPageBlock secondaryPalette';
+  		progressHolder.innerHTML = '';
+  		progressSize = files.length;
+  		for (var i = 0; i < files.length; i++) {
+  			progressHolder.innerHTML += '<p id="uploadStatus'+i+'" class="uploadStatus"><b><span id="progressStatus'+i+'"></span></b><span>'+files[i].name+': <button id="abortbutton'+i+'" class="cancellButton">Cancel</button></span><progress width="96%" id="uploadprogress'+i+'" min="0" max="100" value="0">0</progress></p>';
+		}
+  }
+
+function attachFile(fileBody,index) {
+	var limitSize = {!uploadLimit};
+	var fileSize = parseInt(fileBody.size/1000);
+	var jsonBody = {
+            "body": {
+                "messageSegments": [{
+                    "type": "Text",
+                    "text": fileBody.name
+                }]
+            },
+            "capabilities": {
+		    	 "content" : {
+		            "description": fileBody.name,
+		            "title": fileBody.name
+		        }
+		    },
+            "feedElementType": "FeedItem",
+            "subjectId": '{!parentCaseId}'
+        };
+    var fileData;
+    var dataFromForm = new FormData();
+	dataFromForm.append("feedElement", JSON.stringify(jsonBody));
+   	dataFromForm.append("feedElementFileUpload", fileBody);
+    
+    var req = new XMLHttpRequest();
+	var progress_i = document.getElementById('uploadprogress'+index);
+	var progressStatus_i = document.getElementById('progressStatus'+index);
+	var abortbutton_i = document.getElementById('abortbutton'+index);
+	abortbutton_i.onclick = function(){
+		++successSize;
+		++completedSize;
+		abortbutton_i.className='hidden';
+   		progressStatus_i.innerHTML='Canceled';
+		req.abort();
+	}
+	
+      req.upload.onprogress = function (event) {
+        if (event.lengthComputable) {
+          var complete = (event.loaded / event.total * 100 | 0);
+          progress_i.value = progress_i.innerHTML = complete;
+        }
+      }
+    req.onreadystatechange=function(){
+    	if(req.readyState==4 && progressStatus_i.innerHTML!='Canceled'){
+    		++completedSize;
+          	if (req.status != 201 && req.status != 200) {
+	             if(req.responseText){
+	             		errorStack.push(req.responseText);
+	             		progress_i.value = 0;
+	             		progressStatus_i.innerHTML='Failed';
+	             }else{
+	             		errorStack.push('Unknown error');
+	             		progress_i.value = 0;
+	             		progressStatus_i.innerHTML='Failed';
+	             }
+	       	}else{
+	       		var responseObject = JSON.parse(req.responseText);
+	       		insertedFiles.push(responseObject.capabilities.content.id);
+	       		++successSize;
+	       		progressStatus_i.innerHTML='Success';
+	       	}
+	       	abortbutton_i.className='hidden';
+          }
+         if(completedSize==progressSize && progressSize==successSize){
+         		debugger;
+         		refreshbutton.className = '';
+       			alert('All uploads completed');
+       		}else if(completedSize==progressSize && progressSize!=successSize){
+       			debugger;
+       			refreshbutton.className = '';
+       			alert('Uploads completed with errors:\n'+errorStack);
+       		}
+      }
+    req.open("POST", "/services/data/v35.0/chatter/feed-elements", true);
+    req.setRequestHeader("Authorization", 'Bearer {!$Api.Session_ID}');
+    req.send(dataFromForm);
+    if(limitSize<fileSize){
+    	errorStack.push('File limit:' + limitSize+' kb');
+    	progressStatus_i.innerHTML='Failed';
+		req.abort();
+	}
+   }
+	</script>
+</apex:component>
